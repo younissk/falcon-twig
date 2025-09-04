@@ -37,8 +37,13 @@ def eval_tool_calling(model: Any, tokenizer: Any, valid_ds: Any, device: Any,
     }
 
 
-def main(config: str) -> None:
-    cfg = TrainingConfig(**_read_toml(path=config))
+def main(config: str = None) -> None:
+    if config:
+        cfg = TrainingConfig(**_read_toml(path=config))
+    else:
+        # Use default config from config.py
+        from src.config import config as default_config
+        cfg = default_config
     device = torch.device("cuda" if torch.cuda.is_available() # type: ignore
                           else "cpu")  # type: ignore
 
@@ -147,6 +152,6 @@ def main(config: str) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train Falcon model for tool calling")
-    parser.add_argument("--config", required=True, help="Path to TOML config file")
+    parser.add_argument("--config", help="Path to TOML config file (optional, uses default config if not provided)")
     args = parser.parse_args()
     main(args.config)
