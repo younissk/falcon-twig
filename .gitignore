@@ -1,0 +1,60 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environments
+.venv/
+venv/
+env/
+.uv/
+
+# Python packaging artifacts
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Test, coverage, and profiling
+.coverage
+htmlcov/
+.tox/
+.pytest_cache/
+.cache/
+.mypy_cache/
+.dmypy.json
+.pyright/
+.flake8
+
+# VSCode and IDE settings
+.vscode/
+.idea/
+*.swp
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Data, logs, and outputs
+*.log
+*.out
+
+# Environment variables and secrets
+.env
+.env.*
+
+# Datasets and model checkpoints
+data/
+datasets/
+checkpoints/
+models/
+*.ckpt
+*.pt
+*.bin
+
+# Misc
+*.bak
+*.tmp
