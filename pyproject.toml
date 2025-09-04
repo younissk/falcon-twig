@@ -17,11 +17,6 @@ dependencies = [
     "typer>=0.12",
 ]
 
-[project.optional-dependencies]
-dev = [
-    "types-datasets",
-]
-
 [tool.uv]
 dev-dependencies = [
   "ruff",
