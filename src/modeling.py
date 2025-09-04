@@ -23,14 +23,20 @@ def load_tokenizer(base_model: str) -> Any:
     return tok  # type: ignore
 
 def load_model_4bit(base_model: str) -> Any:
-    bnb = BitsAndBytesConfig(  # type: ignore
-        load_in_4bit=True,
-        bnb_4bit_use_double_quant=True,
-        bnb_4bit_quant_type="nf4",
-        bnb_4bit_compute_dtype=get_compute_dtype(),
-    )
-    model = AutoModelForCausalLM.from_pretrained(base_model, quantization_config=bnb, device_map="auto")  # type: ignore
-    model = prepare_model_for_kbit_training(model)  # type: ignore
+    if BITSANDBYTES_AVAILABLE:
+        bnb = BitsAndBytesConfig(  # type: ignore
+            load_in_4bit=True,
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_compute_dtype=get_compute_dtype(),
+        )
+        model = AutoModelForCausalLM.from_pretrained(base_model, quantization_config=bnb, device_map="auto")  # type: ignore
+        model = prepare_model_for_kbit_training(model)  # type: ignore
+    else:
+        # Fallback for macOS ARM64 without bitsandbytes
+        print("Warning: bitsandbytes not available, loading model without quantization")
+        model = AutoModelForCausalLM.from_pretrained(base_model, device_map="auto")  # type: ignore
+    
     model.config.use_cache = False  # type: ignore
     model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})  # type: ignore
     return model  # type: ignore

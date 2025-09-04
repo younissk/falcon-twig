@@ -1,6 +1,6 @@
 import os
 import json
-import typer  # type: ignore
+import argparse
 import torch  # type: ignore
 from pathlib import Path
 from typing import Any, Dict, List
@@ -8,8 +8,6 @@ from transformers import TrainingArguments, EarlyStoppingCallback, Trainer  # ty
 from src.config import TrainingConfig
 from src.modeling import load_tokenizer, load_model_4bit, infer_lora_targets, apply_lora  # type: ignore
 from src.data import load_and_prepare
-
-cli = typer.Typer(add_completion=False)  # type: ignore
 
 
 def _read_toml(path: str) -> Dict[str, Any]:
@@ -39,9 +37,8 @@ def eval_tool_calling(model: Any, tokenizer: Any, valid_ds: Any, device: Any,
     }
 
 
-@cli.command()  # type: ignore
-def main(config: str = typer.Option(..., help="Path to TOML config")) -> None:  # type: ignore
-    cfg = TrainingConfig(**_read_toml(config))
+def main(config: str) -> None:
+    cfg = TrainingConfig(**_read_toml(path=config))
     device = torch.device("cuda" if torch.cuda.is_available() # type: ignore
                           else "cpu")  # type: ignore
 
@@ -149,4 +146,7 @@ def main(config: str = typer.Option(..., help="Path to TOML config")) -> None:  
 
 
 if __name__ == "__main__":
-    cli()
+    parser = argparse.ArgumentParser(description="Train Falcon model for tool calling")
+    parser.add_argument("--config", required=True, help="Path to TOML config file")
+    args = parser.parse_args()
+    main(args.config)

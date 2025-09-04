@@ -14,7 +14,6 @@ dependencies = [
     "evaluate",
     "jsonlines",
     "tqdm",
-    "typer>=0.12",
 ]
 
 [tool.uv]
