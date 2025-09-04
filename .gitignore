@@ -44,7 +44,6 @@ Thumbs.db
 
 # Environment variables and secrets
 .env
-.env.*
 
 # Datasets and model checkpoints
 data/

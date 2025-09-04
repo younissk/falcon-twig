@@ -4,6 +4,8 @@ alwaysApply: true
 
 This project is a fine tuning project for a Falcon H1 model on Tool calling.
 
+It's run on a100 docker container.
+
 # Tech Stack
 
 - uv
