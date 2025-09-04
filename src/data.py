@@ -61,6 +61,13 @@ def _render_toolblock(tools: List[Dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 def build_prompt(example: Dict[str, Any], tokenizer: Any, max_in: int, max_lbl: int) -> Dict[str, Any]:
+    """Build a single-sequence causal LM example with masked prompt.
+
+    Decoder-only models expect `input_ids` and `labels` to be the same
+    length. We therefore concatenate the prompt and target into one
+    sequence and set labels for the prompt tokens to -100 so they don't
+    contribute to the loss.
+    """
     tools = _normalize_tools_from_json(example.get("tools_json"))
     msgs  = _normalize_messages_from_json(example.get("messages_json"))
 
@@ -71,7 +78,7 @@ def build_prompt(example: Dict[str, Any], tokenizer: Any, max_in: int, max_lbl: 
 
     parts = [f"<|system|>\n{sys_txt}"]
     tb = _render_toolblock(tools)
-    if tb: 
+    if tb:
         parts.append(tb)
     for m in msgs:
         parts.append(f"<|{m['role']}|>\n{m['content']}")
@@ -79,19 +86,35 @@ def build_prompt(example: Dict[str, Any], tokenizer: Any, max_in: int, max_lbl: 
 
     tgt = example.get("target_json", "")
     if isinstance(tgt, str):
-        try: 
+        try:
             tgt = json.dumps(json.loads(tgt), ensure_ascii=False)
-        except Exception: 
+        except Exception:
             pass
     elif isinstance(tgt, (dict, list)):
         tgt = json.dumps(tgt, ensure_ascii=False)
     else:
         tgt = str(tgt)
 
-    model_inputs = tokenizer(prompt_text, truncation=True, max_length=max_in)
-    labels = tokenizer(tgt, truncation=True, max_length=max_lbl)["input_ids"]
-    model_inputs["labels"] = labels
-    return model_inputs
+    # Tokenize prompt and target separately
+    prompt_ids = tokenizer(
+        prompt_text, truncation=True, max_length=max_in, add_special_tokens=True
+    )["input_ids"]
+    # Avoid duplicating special tokens; we'll optionally add eos below
+    target_ids = tokenizer(
+        tgt, truncation=True, max_length=max_lbl, add_special_tokens=False
+    )["input_ids"]
+
+    # Ensure we end the target with eos if available so the model learns to stop
+    eos_id = getattr(tokenizer, "eos_token_id", None)
+    if eos_id is not None:
+        if len(target_ids) == 0 or target_ids[-1] != eos_id:
+            target_ids = target_ids + [eos_id]
+
+    # Build final input and labels
+    input_ids = prompt_ids + target_ids
+    labels = [-100] * len(prompt_ids) + target_ids[:]
+
+    return {"input_ids": input_ids, "labels": labels}
 
 def load_and_prepare(config: TrainingConfig, tokenizer: Any) -> Tuple[Any, Any]:
     ds = load_dataset(config.dataset_name)  # type: ignore
