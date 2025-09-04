@@ -6,10 +6,73 @@ This project is a fine tuning project for a Falcon H1 model on Tool calling.
 
 It's run on a100 docker container.
 
-# Tech Stack
+## Project intent
 
-- uv
-- pyright, flake8, mypy
-- pytest
-- transformers, datasets
-- pydantic
+- Train `tiiuae/falcon-h1-7b-instruct` with **QLoRA** to excel at **tool calling** while **minimizing catastrophic forgetting**.
+- Dataset: `younissk/tool-calling-mix` (HF). Fields used: `messages_json`, `tools_json`, `target_json`, `difficulty`.
+
+## Tech stack & versions (don’t silently change)
+
+- Python ≥ 3.10, package manager: **uv**
+- `transformers 4.43.x`, `peft ≥0.11.1`, `bitsandbytes ≥0.43.1`, `accelerate ≥0.34`
+- Optional kernels: `mamba-ssm` and `causal-conv1d` (best effort; OK if unavailable)
+- QLoRA, 4-bit NF4, gradient checkpointing (non-reentrant), `use_cache=False`
+- Makefile
+
+## Data & prompting rules
+
+- `messages_json` / `tools_json` may be **JSON strings** or **lists/dicts** → always normalize first.
+- Support OpenAI‐style `{"tool_calls":[{"function":{...}}]}` and simple `{"name":..., "arguments":...}`.
+- Prompt format:
+  - Start with `<|system|>\n{system_text}` (fallback: “You are a helpful assistant…”).
+  - Then a **tool block**:
+
+    ```
+    Available tools:
+    - {name}: {description}
+    - ...
+    ```
+
+  - Then each message: `<|{role}|>\n{content}`
+- Tokenization:
+  - Set `tokenizer.pad_token = tokenizer.eos_token` (if pad is None), `padding_side="right"`.
+  - Labels: pad with `pad_id`, then convert padding → `-100`.
+
+## Training defaults (don’t regress without reason)
+
+- Load base in **4-bit NF4** with `bnb_4bit_compute_dtype = bf16 if SM>=80 else fp16`.
+- `prepare_model_for_kbit_training`, `model.config.use_cache=False`.
+- Enable gradient checkpointing: `gradient_checkpointing_enable({"use_reentrant": False})`.
+- LoRA:
+  - Targets = `['q_proj','k_proj','v_proj','o_proj','gate_proj','up_proj','down_proj']` on 80 GB; on 48 GB you may restrict to attention-only (`q/k/v/o`).
+  - `r=16, alpha=32, dropout=0.05`. Keep trainable% ~0.4–0.8%.
+  - **Never** attach LoRA twice in one process; if changing config, reload base model first.
+- Trainer:
+  - `group_by_length=True`, cosine schedule, `warmup_ratio=0.1`, `weight_decay=0.01`, clip `max_grad_norm≤1.0`.
+  - Early stopping patience = 3 evals, `load_best_model_at_end=True`.
+  - Baselines: 80 GB → `max_input_len=2048`, `max_label_len=512`, `bs=2`, `accum=8`.
+
+## Forgetting-mitigation rules
+
+- Use **WeightedTrainer** to up-sample hard examples:
+  - weights: `simple=1.0`, `parallel=2.0`, `multiple=3.0`, `no_call=0.5`.
+- Favor **attention-only LoRA** on smaller GPUs before shrinking seq length too aggressively.
+- Optional post-train **WiSE-FT interpolation** (alpha ≤ 0.9) only after saving clean LoRA adapter; do NOT overwrite the adapter.
+- Do **not** add SAM via HF `Trainer` (requires two-step loop). Only introduce SAM after a clean baseline and with a manual two-step optimizer if needed.
+
+## Memory & performance
+
+- If OOM:
+  1) switch targets → attention-only,
+  2) reduce lengths: 2048→1792→1536,
+  3) increase grad-accum; keep effective batch similar.
+- Set `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`.
+- Refrain from increasing LoRA rank before stabilizing memory.
+
+## Code style & guardrails
+
+- Keep all config in TOML; code reads from `TrainConfig`.
+- No hard-coded paths; respect `output_dir`.
+- Avoid silent dependency bumps; update `pyproject.toml` explicitly.
+- Add small unit checks where cheap (e.g., one example through `build_prompt`).
+- Don’t print entire prompts/labels; print lengths and a 200-char preview for debugging.
