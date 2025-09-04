@@ -1,7 +1,7 @@
 import json
 from typing import Dict, Any, Tuple, List
 from datasets import load_dataset  # type: ignore
-from .config import TrainingConfig
+from src.config import TrainingConfig
 
 SYSTEM_FALLBACK = "You are a helpful assistant that can call tools when appropriate."
 
