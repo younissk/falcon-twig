@@ -5,10 +5,7 @@ from pydantic import BaseModel, Field
 
 class TrainingConfig(BaseModel):
     """Configuration for model training."""
-    model_id: str = Field(
-        default="tiiuae/Falcon-H1-7B-Instruct",
-        description="Hugging Face model ID to fine-tune"
-    )
+
     dataset_id: str = Field(
         default="younissk/tool-calling-mix",
         description="Hugging Face dataset ID to use for training"
@@ -111,9 +108,8 @@ class TrainingConfig(BaseModel):
         description="Maximum label sequence length"
     )
     
-    # Training parameters
     base_model: str = Field(
-        default="tiiuae/Falcon-H1-7B-Instructf",
+        default="tiiuae/Falcon-H1-7B-Instruct",
         description="Base model for fine-tuning"
     )
     per_device_train_bs: int = Field(
