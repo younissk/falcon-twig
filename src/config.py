@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 class TrainingConfig(BaseModel):
     """Configuration for model training."""
     model_id: str = Field(
-        default="tiiuae/Falcon-H1-7B-Instructf",
+        default="tiiuae/Falcon-H1-7B-Instruct",
         description="Hugging Face model ID to fine-tune"
     )
     dataset_id: str = Field(
