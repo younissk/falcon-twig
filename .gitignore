@@ -54,6 +54,9 @@ models/
 *.pt
 *.bin
 
+# Dataset cache
+.cache/
+
 # Misc
 *.bak
 *.tmp

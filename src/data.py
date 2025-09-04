@@ -1,9 +1,64 @@
 import json
+import hashlib
+from pathlib import Path
 from typing import Dict, Any, Tuple, List
-from datasets import load_dataset  # type: ignore
+from datasets import load_dataset, Dataset  # type: ignore
 from src.config import TrainingConfig
 
 SYSTEM_FALLBACK = "You are a helpful assistant that can call tools when appropriate."
+
+
+def _generate_cache_key(config: TrainingConfig, tokenizer: Any) -> str:
+    """Generate a cache key based on dataset name, tokenizer config, and processing parameters."""
+    # Create a hash of the relevant parameters
+    key_data = {
+        "dataset_name": config.dataset_name,
+        "train_split": config.train_split,
+        "eval_split": config.eval_split,
+        "shuffle_seed": config.shuffle_seed,
+        "max_input_len": config.max_input_len,
+        "max_label_len": config.max_label_len,
+        "tokenizer_name": getattr(tokenizer, "name_or_path", str(type(tokenizer).__name__)),
+        "tokenizer_vocab_size": getattr(tokenizer, "vocab_size", 0),
+        "tokenizer_model_max_length": getattr(tokenizer, "model_max_length", 0),
+    }
+    
+    # Convert to string and hash
+    key_str = json.dumps(key_data, sort_keys=True)
+    return hashlib.md5(key_str.encode()).hexdigest()
+
+
+def _get_cache_path(config: TrainingConfig, cache_key: str) -> Path:
+    """Get the cache file path for the given cache key."""
+    cache_dir = Path(config.cache_dir)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    return cache_dir / f"processed_dataset_{cache_key}.json"
+
+
+def _save_processed_datasets(train_ds: Any, valid_ds: Any, cache_path: Path) -> None:
+    """Save processed datasets to cache."""
+    # Convert datasets to dict format for JSON serialization
+    train_dict = train_ds.to_dict() if hasattr(train_ds, 'to_dict') else {}
+    valid_dict = valid_ds.to_dict() if hasattr(valid_ds, 'to_dict') else {}
+    
+    cache_data = {
+        "train": train_dict,
+        "valid": valid_dict
+    }
+    
+    with open(cache_path, 'w') as f:
+        json.dump(cache_data, f, indent=2)
+
+
+def _load_processed_datasets(cache_path: Path) -> Tuple[Any, Any]:
+    """Load processed datasets from cache."""
+    with open(cache_path, 'r') as f:
+        cache_data = json.load(f)
+    
+    train_ds = Dataset.from_dict(cache_data["train"])
+    valid_ds = Dataset.from_dict(cache_data["valid"])
+    
+    return train_ds, valid_ds
 
 def _ensure_list(x: Any) -> List[Any]:
     if x is None: 
@@ -117,6 +172,18 @@ def build_prompt(example: Dict[str, Any], tokenizer: Any, max_in: int, max_lbl: 
     return {"input_ids": input_ids, "labels": labels}
 
 def load_and_prepare(config: TrainingConfig, tokenizer: Any) -> Tuple[Any, Any]:
+    cache_path = None
+    
+    # Check if caching is enabled and cache exists
+    if config.enable_cache:
+        cache_key = _generate_cache_key(config, tokenizer)
+        cache_path = _get_cache_path(config, cache_key)
+        
+        if cache_path.exists():
+            print(f"Loading processed datasets from cache: {cache_path}")
+            return _load_processed_datasets(cache_path)
+    
+    print("Processing datasets (this may take a while)...")
     ds = load_dataset(config.dataset_name)  # type: ignore
     train = ds[config.train_split]  # type: ignore
     valid = ds[config.eval_split]  # type: ignore
@@ -127,4 +194,10 @@ def load_and_prepare(config: TrainingConfig, tokenizer: Any) -> Tuple[Any, Any]:
         return build_prompt(ex, tokenizer, config.max_input_len, config.max_label_len)
     train = train.map(_map_fn)  # type: ignore
     valid = valid.map(_map_fn)  # type: ignore
+    
+    # Save processed datasets to cache if caching is enabled
+    if config.enable_cache and cache_path is not None:
+        print(f"Saving processed datasets to cache: {cache_path}")
+        _save_processed_datasets(train, valid, cache_path)
+    
     return train, valid  # type: ignore
