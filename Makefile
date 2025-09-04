@@ -7,4 +7,4 @@ dev:
 	uv venv && source .venv/bin/activate
 
 train:
-	uv run src/train.py 
+	uv run python -m src.train 

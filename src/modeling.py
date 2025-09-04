@@ -1,8 +1,16 @@
 import torch  # type: ignore
 import torch.nn as nn  # type: ignore
 from typing import List, Any
-from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig  # type: ignore
-from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training  # type: ignore
+from transformers import AutoTokenizer, AutoModelForCausalLM  # type: ignore
+from peft import LoraConfig, get_peft_model  # type: ignore
+
+# Try to import bitsandbytes, fallback for macOS ARM64
+try:
+    from transformers import BitsAndBytesConfig  # type: ignore
+    from peft import prepare_model_for_kbit_training  # type: ignore
+    BITSANDBYTES_AVAILABLE = True
+except ImportError:
+    BITSANDBYTES_AVAILABLE = False
 
 def get_compute_dtype() -> Any:
     return torch.bfloat16 if torch.cuda.is_available() and torch.cuda.get_device_capability(0)[0] >= 8 else torch.float16  # type: ignore

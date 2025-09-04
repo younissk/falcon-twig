@@ -42,7 +42,7 @@ def eval_tool_calling(model: Any, tokenizer: Any, valid_ds: Any, device: Any,
 @cli.command()  # type: ignore
 def main(config: str = typer.Option(..., help="Path to TOML config")) -> None:  # type: ignore
     cfg = TrainingConfig(**_read_toml(config))
-    device = torch.device("cuda" if torch.cuda.is_available()
+    device = torch.device("cuda" if torch.cuda.is_available() # type: ignore
                           else "cpu")  # type: ignore
 
     os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF",
@@ -72,7 +72,7 @@ def main(config: str = typer.Option(..., help="Path to TOML config")) -> None:  
         input_ids = torch.nn.utils.rnn.pad_sequence(
             input_ids, batch_first=True, padding_value=PAD_ID)  # type: ignore
         attention_mask = (input_ids != PAD_ID).long()  # type: ignore
-        labels = torch.nn.utils.rnn.pad_sequence(
+        labels = torch.nn.utils.rnn.pad_sequence( # type: ignore
             labels, batch_first=True, padding_value=PAD_ID)  # type: ignore
         labels[labels == PAD_ID] = -100  # type: ignore
         return {"input_ids": input_ids, "attention_mask": attention_mask, "labels": labels}
