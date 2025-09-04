@@ -13,3 +13,7 @@ train:
 upload:
 	hf auth whoami
 	hf upload younissk/Falcon-Twig-7B outputs
+
+make all:
+	make train
+	make upload

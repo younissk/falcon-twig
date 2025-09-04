@@ -140,6 +140,16 @@ class TrainingConfig(BaseModel):
         default=1.0,
         description="WiSE-FT interpolation alpha"
     )
+
+    # Caching of processed datasets (optional)
+    enable_cache: bool = Field(
+        default=False,
+        description="Cache tokenized datasets to disk for faster restarts"
+    )
+    cache_dir: str = Field(
+        default=".cache",
+        description="Directory to store cached processed datasets"
+    )
     
     # Caching parameters
     cache_dir: str = Field(

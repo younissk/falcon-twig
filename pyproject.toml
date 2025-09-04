@@ -16,6 +16,18 @@ dependencies = [
     "tqdm",
 ]
 
+[project.optional-dependencies]
+# GPU-accelerated kernels for Falcon H1 (Mamba SSM) and fast attention.
+# Install only on a CUDA Linux box with a matching PyTorch/CUDA toolchain.
+fastpath = [
+  # Mamba SSM fused kernels (required for fast Falcon H1)
+  "mamba-ssm>=2.2.2",
+  # Fused causal conv1d kernels used by Mamba
+  "causal-conv1d>=1.4.0.post2",
+  # FlashAttention 2 for faster attention where applicable
+  "flash-attn>=2.6.3",
+]
+
 [tool.uv]
 dev-dependencies = [
   "ruff",

@@ -50,9 +50,30 @@ def main(config: str = None) -> None:
     os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF",
                           "expandable_segments:True")
 
+    # Enable TF32 on Ampere+ for big matmuls (large speedup with minimal loss impact)
+    if torch.cuda.is_available():  # type: ignore
+        try:
+            torch.backends.cuda.matmul.allow_tf32 = True  # type: ignore
+            torch.backends.cudnn.allow_tf32 = True  # type: ignore
+        except Exception:
+            pass
+
     # tokenizer / model
     tokenizer = load_tokenizer(cfg.base_model)  # type: ignore
     model = load_model_4bit(cfg.base_model)  # type: ignore
+
+    # Warn if Mamba fast-path kernels are missing (Falcon H1 uses SSM blocks)
+    def _mamba_fastpath_available() -> bool:
+        try:
+            from mamba_ssm.ops.selective_state_update import selective_state_update  # type: ignore
+            from causal_conv1d import causal_conv1d_fn, causal_conv1d_update  # type: ignore
+            return (selective_state_update is not None) and (causal_conv1d_fn is not None) and (causal_conv1d_update is not None)
+        except Exception:
+            return False
+
+    if not _mamba_fastpath_available():
+        print("WARNING: Mamba/causal-conv1d fast CUDA kernels not found. Training will be 10-50x slower.\n"
+              "Install `mamba-ssm` and `causal-conv1d` wheels built for your CUDA to enable the fast path.")
 
     # infer targets if empty
     targets = cfg.targets or infer_lora_targets(model)  # type: ignore
@@ -91,6 +112,8 @@ def main(config: str = None) -> None:
         weight_decay=cfg.weight_decay,
         max_grad_norm=cfg.max_grad_norm,
         logging_steps=20,
+        dataloader_num_workers=4,
+        dataloader_pin_memory=True,
         eval_strategy="steps",  # Fixed parameter name
         eval_steps=cfg.eval_steps,
         save_steps=cfg.save_steps,
@@ -102,6 +125,7 @@ def main(config: str = None) -> None:
         gradient_checkpointing=True,
         bf16=(model.dtype == torch.bfloat16),  # type: ignore
         fp16=(model.dtype == torch.float16),  # type: ignore
+        optim="paged_adamw_8bit",
         report_to=[],
     )
 
