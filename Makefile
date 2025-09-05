@@ -35,13 +35,13 @@ test-env:
 	@nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader,nounits 2>/dev/null || echo "nvidia-smi not available"
 	@echo ""
 	@echo "4. bitsandbytes Status:"
-	@uv run python -c "try: import bitsandbytes as bnb; print('✓ bitsandbytes available:', bnb.__version__); except ImportError as e: print('✗ bitsandbytes not available:', str(e))"
+	@uv run python -c "try:\n    import bitsandbytes as bnb\n    print('✓ bitsandbytes available:', bnb.__version__)\nexcept ImportError as e:\n    print('✗ bitsandbytes not available:', str(e))"
 	@echo ""
 	@echo "5. Flash Attention Status:"
-	@uv run python -c "try: import flash_attn; print('✓ flash-attn available:', flash_attn.__version__); except ImportError as e: print('✗ flash-attn not available:', str(e))"
+	@uv run python -c "try:\n    import flash_attn\n    print('✓ flash-attn available:', flash_attn.__version__)\nexcept ImportError as e:\n    print('✗ flash-attn not available:', str(e))"
 	@echo ""
 	@echo "6. Mamba SSM Fast Kernels Status:"
-	@uv run python -c "try: from mamba_ssm.ops.selective_state_update import selective_state_update; from causal_conv1d import causal_conv1d_fn, causal_conv1d_update; print('✓ Mamba fast kernels available'); print(f'  selective_state_update: {selective_state_update is not None}'); print(f'  causal_conv1d_fn: {causal_conv1d_fn is not None}'); print(f'  causal_conv1d_update: {causal_conv1d_update is not None}'); except ImportError as e: print('✗ Mamba fast kernels not available:', str(e))"
+	@uv run python -c "try:\n    from mamba_ssm.ops.selective_state_update import selective_state_update\n    from causal_conv1d import causal_conv1d_fn, causal_conv1d_update\n    print('✓ Mamba fast kernels available')\n    print(f'  selective_state_update: {selective_state_update is not None}')\n    print(f'  causal_conv1d_fn: {causal_conv1d_fn is not None}')\n    print(f'  causal_conv1d_update: {causal_conv1d_update is not None}')\nexcept ImportError as e:\n    print('✗ Mamba fast kernels not available:', str(e))"
 	@echo ""
 	@echo "7. Current Environment Analysis:"
 	@uv run python -c "import sys; print(f'Python version: {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}'); print(f'Platform: {sys.platform}'); import torch; print(f'PyTorch CUDA build: {torch.cuda.is_available()}')"
@@ -60,7 +60,7 @@ fix-env:
 	@UV_PYTHON=3.11 uv run python -c "import torch; print('CUDA available:', torch.cuda.is_available())" || (echo "Installing CUDA PyTorch..." && UV_PYTHON=3.11 uv pip install --reinstall --index-url https://download.pytorch.org/whl/cu121 torch torchvision torchaudio)
 	@echo ""
 	@echo "Step 3: Installing fast kernels and optimizations..."
-	@UV_PYTHON=3.11 uv sync -E cuda -E fastpath
+	@UV_PYTHON=3.11 uv sync --extra cuda --extra fastpath
 	@echo ""
 	@echo "Step 4: Verifying installation..."
 	@UV_PYTHON=3.11 uv run python -c "from mamba_ssm.ops.selective_state_update import selective_state_update; from causal_conv1d import causal_conv1d_fn; import torch; print('✓ All fast kernels loaded successfully'); print(f'CUDA: {torch.cuda.is_available()}, Mamba: {selective_state_update is not None}, CausalConv1d: {causal_conv1d_fn is not None}')"
