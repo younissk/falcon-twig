@@ -141,24 +141,74 @@ class TrainingConfig(BaseModel):
         description="WiSE-FT interpolation alpha"
     )
 
-    # Caching of processed datasets (optional)
-    enable_cache: bool = Field(
-        default=False,
-        description="Cache tokenized datasets to disk for faster restarts"
-    )
-    cache_dir: str = Field(
-        default=".cache",
-        description="Directory to store cached processed datasets"
-    )
-    
     # Caching parameters
+    enable_cache: bool = Field(
+        default=True,
+        description="Whether to enable dataset caching"
+    )
     cache_dir: str = Field(
         default=".cache/datasets",
         description="Directory for caching processed datasets"
     )
-    enable_cache: bool = Field(
+
+    # Attention / kernels / precision
+    attn_implementation: str = Field(
+        default="auto",
+        description="Attention backend: auto|flash_attention_2|sdpa|eager"
+    )
+    allow_tf32: bool = Field(
         default=True,
-        description="Whether to enable dataset caching"
+        description="Allow TF32 matmuls on Ampere+ (A100)"
+    )
+    enable_torch_compile: bool = Field(
+        default=False,
+        description="Enable torch.compile for the model forward"
+    )
+    torch_compile_mode: str = Field(
+        default="max-autotune",
+        description="torch.compile mode: default|reduce-overhead|max-autotune"
+    )
+
+    # DataLoader performance
+    dataloader_num_workers: int = Field(
+        default=8,
+        description="Number of DataLoader workers"
+    )
+    dataloader_pin_memory: bool = Field(
+        default=True,
+        description="Pin host memory for DataLoader"
+    )
+    dataloader_prefetch_factor: int = Field(
+        default=2,
+        description="Prefetch factor per worker"
+    )
+    dataloader_persistent_workers: bool = Field(
+        default=True,
+        description="Keep workers alive between epochs"
+    )
+
+    # Sequence packing
+    enable_packing: bool = Field(
+        default=True,
+        description="Enable constant-length sequence packing for training set"
+    )
+    pack_block_size: int = Field(
+        default=2048,
+        description="Packed sequence length (tokens)"
+    )
+    pack_eos_at_sample_end: bool = Field(
+        default=True,
+        description="Ensure EOS is present between samples when packing"
+    )
+
+    # Logging / evaluation controls
+    log_tokens_per_second: bool = Field(
+        default=True,
+        description="Log tokens/sec throughput during training"
+    )
+    early_stopping_patience: int = Field(
+        default=3,
+        description="Early stopping patience (eval steps)"
     )
 
 

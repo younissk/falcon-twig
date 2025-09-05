@@ -1,7 +1,7 @@
 import json
 import hashlib
 from pathlib import Path
-from typing import Dict, Any, Tuple, List
+from typing import Dict, Any, Tuple, List, cast
 from datasets import load_dataset, Dataset  # type: ignore
 from src.config import TrainingConfig
 
@@ -38,10 +38,10 @@ def _get_cache_path(config: TrainingConfig, cache_key: str) -> Path:
 def _save_processed_datasets(train_ds: Any, valid_ds: Any, cache_path: Path) -> None:
     """Save processed datasets to cache."""
     # Convert datasets to dict format for JSON serialization
-    train_dict = train_ds.to_dict() if hasattr(train_ds, 'to_dict') else {}
-    valid_dict = valid_ds.to_dict() if hasattr(valid_ds, 'to_dict') else {}
+    train_dict: Dict[str, Any] = cast(Dict[str, Any], train_ds.to_dict() if hasattr(train_ds, 'to_dict') else {})
+    valid_dict: Dict[str, Any] = cast(Dict[str, Any], valid_ds.to_dict() if hasattr(valid_ds, 'to_dict') else {})
     
-    cache_data = {
+    cache_data: Dict[str, Any] = {
         "train": train_dict,
         "valid": valid_dict
     }
@@ -55,8 +55,11 @@ def _load_processed_datasets(cache_path: Path) -> Tuple[Any, Any]:
     with open(cache_path, 'r') as f:
         cache_data = json.load(f)
     
-    train_ds = Dataset.from_dict(cache_data["train"])
-    valid_ds = Dataset.from_dict(cache_data["valid"])
+    train_map: Dict[str, Any] = cast(Dict[str, Any], cache_data.get("train", {}))
+    valid_map: Dict[str, Any] = cast(Dict[str, Any], cache_data.get("valid", {}))
+    ds_from_dict = cast(Any, Dataset).from_dict
+    train_ds = ds_from_dict(train_map)  # type: ignore
+    valid_ds = ds_from_dict(valid_map)  # type: ignore
     
     return train_ds, valid_ds
 
@@ -194,6 +197,53 @@ def load_and_prepare(config: TrainingConfig, tokenizer: Any) -> Tuple[Any, Any]:
         return build_prompt(ex, tokenizer, config.max_input_len, config.max_label_len)
     train = train.map(_map_fn)  # type: ignore
     valid = valid.map(_map_fn)  # type: ignore
+
+    # Optional constant-length packing for training split to reduce padding
+    if config.enable_packing:
+        def _pack(examples: List[Dict[str, Any]], block_size: int, eos_id: int | None) -> List[Dict[str, Any]]:
+            packed: List[Dict[str, Any]] = []
+            buf_ids: List[int] = []
+            buf_lbl: List[int] = []
+            def _flush() -> None:
+                nonlocal buf_ids, buf_lbl
+                if len(buf_ids) >= block_size:
+                    packed.append({
+                        "input_ids": buf_ids[:block_size],
+                        "labels": buf_lbl[:block_size],
+                    })
+                    buf_ids = buf_ids[block_size:]
+                    buf_lbl = buf_lbl[block_size:]
+            for ex in examples:
+                ids = cast(List[int], ex.get("input_ids", []))  # type: ignore
+                lbl = cast(List[int], ex.get("labels", []))  # type: ignore
+                # ids and lbl are already typed as List[int]
+                if eos_id is not None:
+                    # Ensure separation between samples
+                    if len(ids) > 0 and ids[-1] != eos_id:
+                        ids = ids + [eos_id]
+                        lbl = lbl + [eos_id]
+                buf_ids.extend(ids)
+                buf_lbl.extend(lbl)
+                while len(buf_ids) >= block_size:
+                    _flush()
+            # Drop remainder to keep exact blocks
+            return packed
+
+        eos_id = getattr(tokenizer, "eos_token_id", None)
+        # Materialize, pack, then rebuild a Dataset for training only
+        train_examples: List[Dict[str, Any]] = []
+        for ex in train:  # type: ignore
+            ids = cast(List[int], ex.get("input_ids", []))  # type: ignore
+            lbl = cast(List[int], ex.get("labels", []))  # type: ignore
+            train_examples.append({"input_ids": ids, "labels": lbl})
+        packed_examples = _pack(train_examples, config.pack_block_size, eos_id)
+        if len(packed_examples) > 0:
+            from datasets import Dataset  # type: ignore
+            ds_from_dict2 = cast(Any, Dataset).from_dict
+            train = ds_from_dict2({
+                "input_ids": [ex["input_ids"] for ex in packed_examples],
+                "labels": [ex["labels"] for ex in packed_examples],
+            })  # type: ignore
     
     # Save processed datasets to cache if caching is enabled
     if config.enable_cache and cache_path is not None:

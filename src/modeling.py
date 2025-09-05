@@ -1,6 +1,6 @@
 import torch  # type: ignore
 import torch.nn as nn  # type: ignore
-from typing import List, Any
+from typing import List, Any, cast
 from transformers import AutoTokenizer, AutoModelForCausalLM  # type: ignore
 from peft import LoraConfig, get_peft_model  # type: ignore
 
@@ -8,9 +8,9 @@ from peft import LoraConfig, get_peft_model  # type: ignore
 try:
     from transformers import BitsAndBytesConfig  # type: ignore
     from peft import prepare_model_for_kbit_training  # type: ignore
-    BITSANDBYTES_AVAILABLE = True
+    BNB_AVAILABLE: bool = True
 except ImportError:
-    BITSANDBYTES_AVAILABLE = False
+    BNB_AVAILABLE = False  # type: ignore[reportConstantRedefinition]
 
 def get_compute_dtype() -> Any:
     return torch.bfloat16 if torch.cuda.is_available() and torch.cuda.get_device_capability(0)[0] >= 8 else torch.float16  # type: ignore
@@ -22,23 +22,40 @@ def load_tokenizer(base_model: str) -> Any:
     tok.padding_side = "right"  # type: ignore
     return tok  # type: ignore
 
-def load_model_4bit(base_model: str) -> Any:
-    if BITSANDBYTES_AVAILABLE:
+def load_model_4bit(base_model: str, attn_implementation: str = "auto", enable_torch_compile: bool = False, torch_compile_mode: str = "max-autotune") -> Any:
+    if BNB_AVAILABLE:
         bnb = BitsAndBytesConfig(  # type: ignore
             load_in_4bit=True,
             bnb_4bit_use_double_quant=True,
             bnb_4bit_quant_type="nf4",
             bnb_4bit_compute_dtype=get_compute_dtype(),
         )
-        model = AutoModelForCausalLM.from_pretrained(base_model, quantization_config=bnb, device_map="auto")  # type: ignore
+        _AutoCausalLM: Any = cast(Any, AutoModelForCausalLM)
+        model = _AutoCausalLM.from_pretrained(  # type: ignore
+            base_model,
+            quantization_config=bnb,  # type: ignore
+            device_map="auto",
+            attn_implementation=None if attn_implementation == "auto" else attn_implementation,
+        )  # type: ignore
         model = prepare_model_for_kbit_training(model)  # type: ignore
     else:
         # Fallback for macOS ARM64 without bitsandbytes
         print("Warning: bitsandbytes not available, loading model without quantization")
-        model = AutoModelForCausalLM.from_pretrained(base_model, device_map="auto")  # type: ignore
+        _AutoCausalLM2: Any = cast(Any, AutoModelForCausalLM)
+        model = _AutoCausalLM2.from_pretrained(  # type: ignore
+            base_model,
+            device_map="auto",
+            attn_implementation=None if attn_implementation == "auto" else attn_implementation,
+        )  # type: ignore
     
     model.config.use_cache = False  # type: ignore
     model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})  # type: ignore
+    # Optional compile for forward pass
+    if enable_torch_compile:
+        try:
+            model = torch.compile(model, mode=torch_compile_mode, fullgraph=False)  # type: ignore
+        except Exception:
+            pass
     return model  # type: ignore
 
 def infer_lora_targets(model: Any) -> List[str]:

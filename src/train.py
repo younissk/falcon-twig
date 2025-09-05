@@ -3,8 +3,9 @@ import json
 import argparse
 import torch  # type: ignore
 from pathlib import Path
-from typing import Any, Dict, List
-from transformers import TrainingArguments, EarlyStoppingCallback, Trainer  # type: ignore
+from typing import Any, Dict, List, Optional, cast
+from transformers import TrainingArguments, EarlyStoppingCallback, Trainer, TrainerCallback  # type: ignore
+from torch.nn.utils.rnn import pad_sequence  # type: ignore
 from src.config import TrainingConfig
 from src.modeling import load_tokenizer, load_model_4bit, infer_lora_targets, apply_lora  # type: ignore
 from src.data import load_and_prepare
@@ -37,7 +38,7 @@ def eval_tool_calling(model: Any, tokenizer: Any, valid_ds: Any, device: Any,
     }
 
 
-def main(config: str = None) -> None:
+def main(config: Optional[str] = None) -> None:
     if config:
         cfg = TrainingConfig(**_read_toml(path=config))
     else:
@@ -50,8 +51,8 @@ def main(config: str = None) -> None:
     os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF",
                           "expandable_segments:True")
 
-    # Enable TF32 on Ampere+ for big matmuls (large speedup with minimal loss impact)
-    if torch.cuda.is_available():  # type: ignore
+    # Enable TF32 on Ampere+ for big matmuls
+    if torch.cuda.is_available() and cfg.allow_tf32:  # type: ignore
         try:
             torch.backends.cuda.matmul.allow_tf32 = True  # type: ignore
             torch.backends.cudnn.allow_tf32 = True  # type: ignore
@@ -60,7 +61,12 @@ def main(config: str = None) -> None:
 
     # tokenizer / model
     tokenizer = load_tokenizer(cfg.base_model)  # type: ignore
-    model = load_model_4bit(cfg.base_model)  # type: ignore
+    model = load_model_4bit(
+        cfg.base_model,
+        attn_implementation=cfg.attn_implementation,
+        enable_torch_compile=cfg.enable_torch_compile,
+        torch_compile_mode=cfg.torch_compile_mode,
+    )  # type: ignore
 
     # Warn if Mamba fast-path kernels are missing (Falcon H1 uses SSM blocks)
     def _mamba_fastpath_available() -> bool:
@@ -84,22 +90,18 @@ def main(config: str = None) -> None:
     train_ds, valid_ds = load_and_prepare(cfg, tokenizer)  # type: ignore
 
     # collator
-    PAD_ID = tokenizer.pad_token_id  # type: ignore
+    PAD_ID: int = int(tokenizer.pad_token_id)  # type: ignore
 
     def collator(features: List[Dict[str, Any]]) -> Dict[str, Any]:
-        import torch  # type: ignore
-        input_ids = [torch.tensor(f["input_ids"], dtype=torch.long)
-                     for f in features]  # type: ignore
-        labels = [torch.tensor(f["labels"],    dtype=torch.long)
-                  for f in features]  # type: ignore
-        input_ids = torch.nn.utils.rnn.pad_sequence(
-            input_ids, batch_first=True, padding_value=PAD_ID)  # type: ignore
-        attention_mask = (input_ids != PAD_ID).long()  # type: ignore
-        labels = torch.nn.utils.rnn.pad_sequence( # type: ignore
-            labels, batch_first=True, padding_value=PAD_ID)  # type: ignore
-        labels[labels == PAD_ID] = -100  # type: ignore
-        return {"input_ids": input_ids, "attention_mask": attention_mask, "labels": labels}
+        input_tensors = [torch.tensor(f["input_ids"], dtype=torch.long) for f in features]  # type: ignore
+        label_tensors = [torch.tensor(f["labels"],    dtype=torch.long) for f in features]  # type: ignore
+        input_batch = pad_sequence(input_tensors, batch_first=True, padding_value=PAD_ID)  # type: ignore
+        attention_mask = (input_batch != PAD_ID).long()  # type: ignore
+        label_batch = pad_sequence(label_tensors, batch_first=True, padding_value=PAD_ID)  # type: ignore
+        label_batch[label_batch == PAD_ID] = -100  # type: ignore
+        return {"input_ids": input_batch, "attention_mask": attention_mask, "labels": label_batch}
 
+    _optim = "paged_adamw_8bit" if torch.cuda.is_available() else "adamw_torch"  # type: ignore
     args = TrainingArguments(
         output_dir=cfg.output_dir,
         per_device_train_batch_size=cfg.per_device_train_bs,
@@ -112,9 +114,9 @@ def main(config: str = None) -> None:
         weight_decay=cfg.weight_decay,
         max_grad_norm=cfg.max_grad_norm,
         logging_steps=20,
-        dataloader_num_workers=4,
-        dataloader_pin_memory=True,
-        eval_strategy="steps",  # Fixed parameter name
+        dataloader_num_workers=cfg.dataloader_num_workers,
+        dataloader_pin_memory=cfg.dataloader_pin_memory,
+        eval_strategy="steps",
         eval_steps=cfg.eval_steps,
         save_steps=cfg.save_steps,
         save_total_limit=cfg.save_total_limit,
@@ -125,9 +127,33 @@ def main(config: str = None) -> None:
         gradient_checkpointing=True,
         bf16=(model.dtype == torch.bfloat16),  # type: ignore
         fp16=(model.dtype == torch.float16),  # type: ignore
-        optim="paged_adamw_8bit",
+        dataloader_persistent_workers=cfg.dataloader_persistent_workers,
+        dataloader_prefetch_factor=cfg.dataloader_prefetch_factor,
+        optim=_optim,
         report_to=[],
     )
+
+    # Optional simple throughput logger
+    class _ThroughputCallback(TrainerCallback):  # type: ignore
+        def __init__(self, log_tps: bool = True) -> None:
+            self.log_tps = log_tps
+            self._tok_counter = 0
+            self._last_step = 0
+        def on_log(self, args, state, control, **kwargs):  # type: ignore
+            if not self.log_tps:
+                return
+            logs: Dict[str, Any] = {}
+            try:
+                kw: Dict[str, Any] = cast(Dict[str, Any], kwargs)
+                got_any: Any = kw.get("logs", {}) or {}
+                if isinstance(got_any, dict):
+                    got_dict: Dict[str, Any] = cast(Dict[str, Any], got_any)
+                    logs = {str(k): got_dict[k] for k in got_dict}
+            except Exception:
+                pass
+            tps = logs.get("train_tokens_per_second")
+            if tps is not None:
+                print(f"tokens/sec: {tps:.2f}")
 
     trainer = WeightedTrainer(
         model=model,
@@ -136,11 +162,11 @@ def main(config: str = None) -> None:
         eval_dataset=valid_ds,
         data_collator=collator,
         tokenizer=None,  # avoid deprecation noise
-        callbacks=[EarlyStoppingCallback(early_stopping_patience=3)],
+        callbacks=[EarlyStoppingCallback(early_stopping_patience=cfg.early_stopping_patience), _ThroughputCallback(cfg.log_tokens_per_second)],
         difficulty_weights=cfg.difficulty_weights,
     )
 
-    _ = trainer.train()  # type: ignore
+    trainer.train()  # type: ignore
     trainer.save_model(cfg.output_dir)  # type: ignore
     tokenizer.save_pretrained(cfg.output_dir)  # type: ignore
 
