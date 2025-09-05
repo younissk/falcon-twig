@@ -16,18 +16,14 @@ class TrainingConfig(BaseModel):
         description="Random seed for reproducibility"
     )
 
-    num_train_epochs: int = Field(
-        default=3,
-        description="Number of training epochs"
-    )
-
+    # Removed num_train_epochs as we always train for 1 epoch
     lora_r: int = Field(
-        default=16,
-        description="Rank of the LoRA matrix"
+        default=8,
+        description="Rank of the LoRA matrix (reduced for faster training)"
     )
     lora_alpha: int = Field(
-        default=32,
-        description="Alpha of the LoRA matrix"
+        default=16,
+        description="Alpha of the LoRA matrix (2x rank for balance)"
     )
     lora_dropout: float = Field(
         default=0.05,
@@ -113,16 +109,16 @@ class TrainingConfig(BaseModel):
         description="Base model for fine-tuning"
     )
     per_device_train_bs: int = Field(
-        default=1,
-        description="Per device training batch size"
+        default=2,
+        description="Per device training batch size (2-4 on 80GB A100)"
     )
     per_device_eval_bs: int = Field(
-        default=1,
+        default=2,
         description="Per device evaluation batch size"
     )
     grad_accum: int = Field(
-        default=4,
-        description="Gradient accumulation steps"
+        default=2,
+        description="Gradient accumulation steps (reduced due to larger batch size)"
     )
     difficulty_weights: bool = Field(
         default=False,
@@ -153,7 +149,7 @@ class TrainingConfig(BaseModel):
 
     # Attention / kernels / precision
     attn_implementation: str = Field(
-        default="auto",
+        default="flash_attention_2",
         description="Attention backend: auto|flash_attention_2|sdpa|eager"
     )
     allow_tf32: bool = Field(
@@ -161,7 +157,7 @@ class TrainingConfig(BaseModel):
         description="Allow TF32 matmuls on Ampere+ (A100)"
     )
     enable_torch_compile: bool = Field(
-        default=False,
+        default=True,
         description="Enable torch.compile for the model forward"
     )
     torch_compile_mode: str = Field(
@@ -193,8 +189,8 @@ class TrainingConfig(BaseModel):
         description="Enable constant-length sequence packing for training set"
     )
     pack_block_size: int = Field(
-        default=2048,
-        description="Packed sequence length (tokens)"
+        default=1024,
+        description="Packed sequence length (tokens); median instruction ~110 tokens"
     )
     pack_eos_at_sample_end: bool = Field(
         default=True,

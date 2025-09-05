@@ -22,7 +22,37 @@ def load_tokenizer(base_model: str) -> Any:
     tok.padding_side = "right"  # type: ignore
     return tok  # type: ignore
 
+def load_model_standard(base_model: str, attn_implementation: str = "auto", enable_torch_compile: bool = False, torch_compile_mode: str = "max-autotune") -> Any:
+    """Load model in standard fp16/bf16 mode for faster training when memory allows.
+    
+    This function loads the model without 4-bit quantization, which can speed up training by ~30%
+    when sufficient VRAM is available (recommended: 70GB+ for 7B models).
+    """
+    compute_dtype = get_compute_dtype()
+    _AutoCausalLM: Any = cast(Any, AutoModelForCausalLM)
+    resolved_attn = None if attn_implementation == "auto" else attn_implementation
+    try:
+        model = _AutoCausalLM.from_pretrained(  # type: ignore
+            base_model,
+            torch_dtype=compute_dtype,
+            device_map="auto",
+            attn_implementation=resolved_attn,
+        )  # type: ignore
+    except Exception:
+        model = _AutoCausalLM.from_pretrained(  # type: ignore
+            base_model,
+            torch_dtype=compute_dtype,
+            device_map="auto",
+            attn_implementation="sdpa",
+        )  # type: ignore
+    return model
+
 def load_model_4bit(base_model: str, attn_implementation: str = "auto", enable_torch_compile: bool = False, torch_compile_mode: str = "max-autotune") -> Any:
+    """Load model in 4-bit mode for memory savings.
+    
+    This function uses QLoRA 4-bit quantization to reduce memory usage by ~6GB,
+    but may increase training time by ~30%. Use load_model_standard() when memory allows.
+    """
     if BNB_AVAILABLE:
         bnb = BitsAndBytesConfig(  # type: ignore
             load_in_4bit=True,
@@ -48,22 +78,9 @@ def load_model_4bit(base_model: str, attn_implementation: str = "auto", enable_t
             )  # type: ignore
         model = prepare_model_for_kbit_training(model)  # type: ignore
     else:
-        # Fallback for macOS ARM64 without bitsandbytes
-        print("Warning: bitsandbytes not available, loading model without quantization")
-        _AutoCausalLM2: Any = cast(Any, AutoModelForCausalLM)
-        resolved_attn2 = None if attn_implementation == "auto" else attn_implementation
-        try:
-            model = _AutoCausalLM2.from_pretrained(  # type: ignore
-                base_model,
-                device_map="auto",
-                attn_implementation=resolved_attn2,
-            )  # type: ignore
-        except Exception:
-            model = _AutoCausalLM2.from_pretrained(  # type: ignore
-                base_model,
-                device_map="auto",
-                attn_implementation="sdpa",
-            )  # type: ignore
+        # Fallback for macOS ARM64 without bitsandbytes - use standard loading
+        print("Warning: bitsandbytes not available, falling back to standard loading")
+        model = load_model_standard(base_model, attn_implementation, enable_torch_compile, torch_compile_mode)
     
     model.config.use_cache = False  # type: ignore
     model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})  # type: ignore
