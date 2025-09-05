@@ -5,14 +5,13 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    # Core ML dependencies (install first)
-    "torch>=2.2.0",  # Version requirement handled by pip/uv
+    # Core ML dependencies
+    "torch>=2.2.0",
     "datasets>=4.0.0",
     "transformers>=4.56.0",
     "pydantic>=2.6.0",
     "accelerate>=0.34",
     "peft>=0.11.1",
-    "bitsandbytes>=0.43.1",
     "evaluate",
     "jsonlines",
     "tqdm",
@@ -20,14 +19,19 @@ dependencies = [
 
 [project.optional-dependencies]
 # GPU-accelerated kernels for Falcon H1 (Mamba SSM) and fast attention.
-# Install only on a CUDA Linux box with a matching PyTorch/CUDA toolchain.
+# Only install on Linux with CUDA toolkit and compatible Python version.
 fastpath = [
-    # FlashAttention 2 for faster attention (requires torch to be installed first)
-    "flash-attn==2.1.2",  # More stable version for Python 3.13
+    # FlashAttention 2 for faster attention
+    "flash-attn>=2.3.0; python_version < '3.12'",
     # Mamba SSM fused kernels (required for fast Falcon H1)
-    "mamba-ssm>=2.2.2,<3.0",
+    "mamba-ssm>=2.2.2,<3.0; python_version < '3.12'",
     # Fused causal conv1d kernels used by Mamba
-    "causal-conv1d>=1.4.0.post2",
+    "causal-conv1d>=1.4.0.post2; python_version < '3.12'",
+]
+
+# CUDA-specific dependencies (Linux only)
+cuda = [
+    "bitsandbytes>=0.43.1; platform_system == 'Linux'",
 ]
 
 [tool.uv]

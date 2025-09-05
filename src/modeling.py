@@ -27,7 +27,21 @@ def load_model_standard(base_model: str, attn_implementation: str = "auto", enab
     
     This function loads the model without 4-bit quantization, which can speed up training by ~30%
     when sufficient VRAM is available (recommended: 70GB+ for 7B models).
+    
+    Args:
+        base_model: Model ID from HuggingFace hub
+        attn_implementation: One of "auto", "flash_attention_2", "sdpa", "eager"
+                           Note: flash_attention_2 requires Python < 3.12 and CUDA toolkit
+        enable_torch_compile: Whether to compile model with torch.compile
+        torch_compile_mode: Compilation mode for torch.compile
     """
+    # Check if flash attention is actually available when requested
+    if attn_implementation == "flash_attention_2":
+        try:
+            import flash_attn  # type: ignore
+        except ImportError:
+            print("Warning: flash-attn not available, falling back to SDPA")
+            attn_implementation = "sdpa"
     compute_dtype = get_compute_dtype()
     _AutoCausalLM: Any = cast(Any, AutoModelForCausalLM)
     resolved_attn = None if attn_implementation == "auto" else attn_implementation
