@@ -207,10 +207,16 @@ def load_and_prepare(config: TrainingConfig, tokenizer: Any) -> Tuple[Any, Any]:
             def _flush() -> None:
                 nonlocal buf_ids, buf_lbl
                 if len(buf_ids) >= block_size:
-                    packed.append({
-                        "input_ids": buf_ids[:block_size],
-                        "labels": buf_lbl[:block_size],
-                    })
+                    cand_ids = buf_ids[:block_size]
+                    cand_lbl = buf_lbl[:block_size]
+                    # Drop blocks that contain no supervised tokens
+                    has_supervised = any((v != -100) for v in cand_lbl)
+                    if has_supervised:
+                        packed.append({
+                            "input_ids": cand_ids,
+                            "labels": cand_lbl,
+                        })
+                    # Advance regardless to avoid infinite loop
                     buf_ids = buf_ids[block_size:]
                     buf_lbl = buf_lbl[block_size:]
             for ex in examples:
