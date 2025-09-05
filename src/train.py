@@ -102,8 +102,14 @@ def main(config: Optional[str] = None) -> None:
         return {"input_ids": input_batch, "attention_mask": attention_mask, "labels": label_batch}
 
     def _bnb_available() -> bool:
+        """Return True only if bitsandbytes is importable and CUDA is available.
+
+        This guards against selecting paged_adamw_8bit when bitsandbytes isn't installed
+        (which would cause Trainer to crash during optimizer construction).
+        """
         try:
-            return True
+            import bitsandbytes  # type: ignore  # noqa: F401
+            return bool(torch.cuda.is_available())  # type: ignore
         except Exception:
             return False
 
