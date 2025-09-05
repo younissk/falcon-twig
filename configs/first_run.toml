@@ -1,0 +1,17 @@
+# Safer first-run overrides for a fresh GPU machine
+
+# Use flash attention if present, else falls back automatically
+attn_implementation = "flash_attention_2"
+
+# torch.compile can clash with some kernels on first try
+enable_torch_compile = false
+
+# Avoid edge-cases with empty-supervision during packing on new datasets
+enable_packing = false
+
+# Keep TF32 on for Ampere (A100)
+allow_tf32 = true
+
+# Throughput log can be useful
+log_tokens_per_second = true
+

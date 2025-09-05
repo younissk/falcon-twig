@@ -1,6 +1,6 @@
 
 
-.PHONY: train dev test-env fix-env doctor doctor-fix train311 install-mamba
+.PHONY: train dev test-env fix-env doctor doctor-fix train311 install-mamba bootstrap verify-fastpath clean-cache train-first
 
 dev:
 	uv sync
@@ -45,3 +45,31 @@ install-mamba:
 	pip install mamba-ssm[dev]
 	uv pip install causal-conv1d>=1.4.0 
 	uv pip install mamba-ssm
+
+# Bootstrap a fresh GPU box for the fast path
+bootstrap:
+	bash scripts/bootstrap_fastpath.sh
+
+# Verify fast kernels in current env
+verify-fastpath:
+	UV_PYTHON=3.11 uv run python - <<'PY'
+import sys, torch
+print("python:", sys.executable)
+print("torch:", torch.__version__, "cuda:", torch.version.cuda, "avail:", torch.cuda.is_available())
+try:
+    from mamba_ssm.ops.selective_state_update import selective_state_update
+    from causal_conv1d import causal_conv1d_fn, causal_conv1d_update
+    print("selective_state_update:", selective_state_update is not None)
+    print("causal_conv1d_fn:", causal_conv1d_fn is not None)
+    print("causal_conv1d_update:", causal_conv1d_update is not None)
+except Exception as e:
+    print("fastpath import error:", e)
+PY
+
+# Clean processed dataset cache
+clean-cache:
+	rm -f .cache/datasets/processed_dataset_*.json || true
+
+# Safer first training run (no 4-bit, no packing)
+train-first:
+	USE_4BIT=0 UV_PYTHON=3.11 uv run python -m src.train --config configs/first_run.toml
