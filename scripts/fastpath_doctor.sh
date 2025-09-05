@@ -184,8 +184,11 @@ fix() {
   print_header "Ensuring Python ${TARGET_PYTHON} is available to uv"
   UV_PYTHON="${TARGET_PYTHON}" uv python install "${TARGET_PYTHON}" || true
 
-  print_header "Syncing base deps with Python ${TARGET_PYTHON} (no GPU yet)"
-  UV_PYTHON="${TARGET_PYTHON}" uv sync || true
+  print_header "Creating/using project virtualenv with Python ${TARGET_PYTHON}"
+  UV_PYTHON="${TARGET_PYTHON}" uv venv || true
+
+  print_header "Ensuring build tooling (pip/setuptools/wheel/packaging)"
+  UV_PYTHON="${TARGET_PYTHON}" uv pip install --upgrade pip setuptools wheel packaging || true
 
   local tag
   tag=$(detect_cuda_tag)
@@ -204,6 +207,8 @@ fix() {
 
   if [[ "${INSTALL_FLASH}" == "1" && "${OS_NAME}" == "Linux" ]]; then
     print_header "Installing flash-attn (optional)"
+    # flash-attn often requires ninja present
+    UV_PYTHON="${TARGET_PYTHON}" uv pip install --upgrade ninja || true
     UV_PYTHON="${TARGET_PYTHON}" uv pip install --no-build-isolation --upgrade \
       "flash-attn>=2.6.3" || true
   else
@@ -211,7 +216,31 @@ fix() {
   fi
 
   print_header "Verifying after install"
-  UV_PYTHON="${TARGET_PYTHON}" uv run bash -lc 'python - <<"PY"\nimport torch\nprint("torch:", torch.__version__, "cuda:", getattr(torch.version, "cuda", None), "avail:", torch.cuda.is_available())\ntry:\n  from mamba_ssm.ops.selective_state_update import selective_state_update\n  print("mamba selective_state_update:", selective_state_update is not None)\nexcept Exception as e:\n  print("mamba selective_state_update import failed:", e)\ntry:\n  from causal_conv1d import causal_conv1d_fn, causal_conv1d_update\n  print("causal_conv1d_fn:", causal_conv1d_fn is not None)\n  print("causal_conv1d_update:", causal_conv1d_update is not None)\nexcept Exception as e:\n  print("causal_conv1d import failed:", e)\ntry:\n  import flash_attn\n  print("flash_attn:", True)\nexcept Exception:\n  print("flash_attn:", False)\ntry:\n  import bitsandbytes as bnb\n  print("bitsandbytes:", True)\nexcept Exception:\n  print("bitsandbytes:", False)\nPY'
+  run_uv_python <<'PY'
+import torch
+print("torch:", torch.__version__, "cuda:", getattr(torch.version, "cuda", None), "avail:", torch.cuda.is_available())
+try:
+  from mamba_ssm.ops.selective_state_update import selective_state_update
+  print("mamba selective_state_update:", selective_state_update is not None)
+except Exception as e:
+  print("mamba selective_state_update import failed:", e)
+try:
+  from causal_conv1d import causal_conv1d_fn, causal_conv1d_update
+  print("causal_conv1d_fn:", causal_conv1d_fn is not None)
+  print("causal_conv1d_update:", causal_conv1d_update is not None)
+except Exception as e:
+  print("causal_conv1d import failed:", e)
+try:
+  import flash_attn
+  print("flash_attn:", True)
+except Exception:
+  print("flash_attn:", False)
+try:
+  import bitsandbytes as bnb
+  print("bitsandbytes:", True)
+except Exception:
+  print("bitsandbytes:", False)
+PY
 
   echo
   print_header "Next Steps"
