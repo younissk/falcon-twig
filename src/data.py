@@ -174,6 +174,26 @@ def build_prompt(example: Dict[str, Any], tokenizer: Any, max_in: int, max_lbl: 
 
     return {"input_ids": input_ids, "labels": labels}
 
+def _filter_has_supervised(ds: Any) -> Any:
+    """Filter out examples where all labels are -100 (no supervised signal)."""
+    try:
+        # datasets.Dataset.filter expects a callable returning bool
+        return ds.filter(lambda ex: any((int(v) != -100) for v in ex.get("labels", [])))  # type: ignore
+    except Exception:
+        # Fallback for plain dict-based datasets
+        try:
+            keep_ids: List[List[int]] = []
+            keep_lbl: List[List[int]] = []
+            for ids, lbl in zip(ds["input_ids"], ds["labels"]):  # type: ignore
+                if any((int(v) != -100) for v in lbl):
+                    keep_ids.append(ids)
+                    keep_lbl.append(lbl)
+            from datasets import Dataset  # type: ignore
+            return cast(Any, Dataset).from_dict({"input_ids": keep_ids, "labels": keep_lbl})
+        except Exception:
+            return ds
+
+
 def load_and_prepare(config: TrainingConfig, tokenizer: Any) -> Tuple[Any, Any]:
     cache_path = None
     
@@ -184,7 +204,11 @@ def load_and_prepare(config: TrainingConfig, tokenizer: Any) -> Tuple[Any, Any]:
         
         if cache_path.exists():
             print(f"Loading processed datasets from cache: {cache_path}")
-            return _load_processed_datasets(cache_path)
+            train_ds, valid_ds = _load_processed_datasets(cache_path)
+            # Ensure no empty-supervision batches remain from older caches
+            train_ds = _filter_has_supervised(train_ds)
+            valid_ds = _filter_has_supervised(valid_ds)
+            return train_ds, valid_ds
     
     print("Processing datasets (this may take a while)...")
     ds = load_dataset(config.dataset_name)  # type: ignore
@@ -251,6 +275,10 @@ def load_and_prepare(config: TrainingConfig, tokenizer: Any) -> Tuple[Any, Any]:
                 "labels": [ex["labels"] for ex in packed_examples],
             })  # type: ignore
     
+    # After processing/packing, drop any examples with no supervised tokens
+    train = _filter_has_supervised(train)
+    valid = _filter_has_supervised(valid)
+
     # Save processed datasets to cache if caching is enabled
     if config.enable_cache and cache_path is not None:
         print(f"Saving processed datasets to cache: {cache_path}")
