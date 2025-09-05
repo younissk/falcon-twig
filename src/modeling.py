@@ -66,35 +66,48 @@ def load_model_4bit(base_model: str, attn_implementation: str = "auto", enable_t
     
     This function uses QLoRA 4-bit quantization to reduce memory usage by ~6GB,
     but may increase training time by ~30%. Use load_model_standard() when memory allows.
+    
+    If bitsandbytes is not available or fails to load, falls back to standard fp16/bf16 loading.
     """
-    if BNB_AVAILABLE:
-        bnb = BitsAndBytesConfig(  # type: ignore
+    try:
+        # Check if bitsandbytes is properly installed and importable
+        from transformers import BitsAndBytesConfig  # type: ignore
+        from peft import prepare_model_for_kbit_training  # type: ignore
+        import bitsandbytes  # type: ignore # noqa: F401
+        
+        bnb_config = BitsAndBytesConfig(  # type: ignore
             load_in_4bit=True,
             bnb_4bit_use_double_quant=True,
             bnb_4bit_quant_type="nf4",
             bnb_4bit_compute_dtype=get_compute_dtype(),
         )
+        
         _AutoCausalLM: Any = cast(Any, AutoModelForCausalLM)
         resolved_attn = None if attn_implementation == "auto" else attn_implementation
         try:
-            model = _AutoCausalLM.from_pretrained(  # type: ignore
+            model: Any = _AutoCausalLM.from_pretrained(  # type: ignore
                 base_model,
-                quantization_config=bnb,  # type: ignore
+                quantization_config=bnb_config,  # type: ignore
                 device_map="auto",
                 attn_implementation=resolved_attn,
-            )  # type: ignore
+            )
         except Exception:
-            model = _AutoCausalLM.from_pretrained(  # type: ignore
+            model: Any = _AutoCausalLM.from_pretrained(  # type: ignore
                 base_model,
-                quantization_config=bnb,  # type: ignore
+                quantization_config=bnb_config,  # type: ignore
                 device_map="auto",
                 attn_implementation="sdpa",
-            )  # type: ignore
+            )
         model = prepare_model_for_kbit_training(model)  # type: ignore
-    else:
-        # Fallback for macOS ARM64 without bitsandbytes - use standard loading
-        print("Warning: bitsandbytes not available, falling back to standard loading")
-        model = load_model_standard(base_model, attn_implementation, enable_torch_compile, torch_compile_mode)
+        print("Successfully loaded model in 4-bit mode")
+        return model
+        
+    except (ImportError, ModuleNotFoundError) as e:
+        print(f"Warning: bitsandbytes not available ({str(e)}), falling back to standard loading")
+        return load_model_standard(base_model, attn_implementation, enable_torch_compile, torch_compile_mode)
+    except Exception as e:
+        print(f"Warning: 4-bit quantization failed ({str(e)}), falling back to standard loading")
+        return load_model_standard(base_model, attn_implementation, enable_torch_compile, torch_compile_mode)
     
     model.config.use_cache = False  # type: ignore
     model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})  # type: ignore
