@@ -3,6 +3,7 @@ import torch.nn as nn  # type: ignore
 from typing import List, Any, cast
 from transformers import AutoTokenizer, AutoModelForCausalLM  # type: ignore
 from peft import LoraConfig, get_peft_model  # type: ignore
+from packaging.version import Version  # type: ignore
 
 # Try to import bitsandbytes, fallback for macOS ARM64
 try:
@@ -69,7 +70,16 @@ def load_model_standard(base_model: str, attn_implementation: str = "auto", enab
     # Optional compile for forward pass
     if enable_torch_compile:
         try:
-            model = torch.compile(model, mode=torch_compile_mode, fullgraph=False)  # type: ignore
+            # Prefer regional compilation for compatibility with Accelerate unwrap on PT >= 2.8
+            if Version(torch.__version__.split("+")[0]) >= Version("2.8.0"):  # type: ignore
+                try:
+                    from accelerate.utils import compile_regions  # type: ignore
+                    model = compile_regions(model, mode=torch_compile_mode)  # type: ignore
+                except Exception:
+                    # Fallback: skip compile to avoid unwrap issues
+                    print("Warning: Skipping torch.compile on PyTorch>=2.8 due to unwrap incompatibility")
+            else:
+                model = torch.compile(model, mode=torch_compile_mode, fullgraph=False)  # type: ignore
         except Exception:
             pass
     return model
@@ -124,7 +134,14 @@ def load_model_4bit(base_model: str, attn_implementation: str = "auto", enable_t
         # Optional compile for forward pass
         if enable_torch_compile:
             try:
-                model = torch.compile(model, mode=torch_compile_mode, fullgraph=False)  # type: ignore
+                if Version(torch.__version__.split("+")[0]) >= Version("2.8.0"):  # type: ignore
+                    try:
+                        from accelerate.utils import compile_regions  # type: ignore
+                        model = compile_regions(model, mode=torch_compile_mode)  # type: ignore
+                    except Exception:
+                        print("Warning: Skipping torch.compile on PyTorch>=2.8 due to unwrap incompatibility")
+                else:
+                    model = torch.compile(model, mode=torch_compile_mode, fullgraph=False)  # type: ignore
             except Exception:
                 pass
 
