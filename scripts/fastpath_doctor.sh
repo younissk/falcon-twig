@@ -48,6 +48,46 @@ run_uv_python() {
   uv run python - "$@"
 }
 
+detect_cuda_tag() {
+  # Heuristic: pick a PyTorch CUDA wheel index that matches the system.
+  # Prefers CUDA from nvidia-smi, else from current torch, else defaults to cu121.
+  local override_tag
+  override_tag="${CUDA_TAG:-}"
+  if [[ -n "$override_tag" ]]; then
+    echo "$override_tag"
+    return 0
+  fi
+  local ver_line major minor
+  if command -v nvidia-smi >/dev/null 2>&1; then
+    ver_line=$(nvidia-smi 2>/dev/null | grep -o 'CUDA Version: [0-9][0-9]*\.[0-9][0-9]*' | head -n1 || true)
+    if [[ -n "$ver_line" ]]; then
+      major=$(echo "$ver_line" | awk '{print $3}' | cut -d. -f1)
+      minor=$(echo "$ver_line" | awk '{print $3}' | cut -d. -f2)
+    fi
+  fi
+  if [[ -z "${major:-}" ]]; then
+    # fallback: try current torch
+    local torch_cuda
+    torch_cuda=$(uv run python -c 'import torch,sys;print(getattr(torch.version,"cuda","") or "")' 2>/dev/null || true)
+    if [[ "$torch_cuda" =~ ^([0-9]+)\.([0-9]+)$ ]]; then
+      major="${BASH_REMATCH[1]}"; minor="${BASH_REMATCH[2]}"
+    fi
+  fi
+  # Map minor to known tags
+  if [[ -n "${major:-}" ]]; then
+    if (( major == 12 )); then
+      if   (( minor >= 8 )); then echo "cu128"; return 0
+      elif (( minor >= 6 )); then echo "cu126"; return 0
+      elif (( minor >= 4 )); then echo "cu124"; return 0
+      elif (( minor >= 1 )); then echo "cu121"; return 0
+      fi
+    elif (( major == 11 )); then
+      if (( minor >= 8 )); then echo "cu118"; return 0; fi
+    fi
+  fi
+  echo "cu121"
+}
+
 diagnose() {
   need_cmd uv
 
@@ -144,13 +184,23 @@ fix() {
   print_header "Ensuring Python ${TARGET_PYTHON} is available to uv"
   UV_PYTHON="${TARGET_PYTHON}" uv python install "${TARGET_PYTHON}" || true
 
-  print_header "Syncing dependencies (extras: cuda, fastpath) with Python ${TARGET_PYTHON}"
-  UV_PYTHON="${TARGET_PYTHON}" uv sync -E cuda -E fastpath || true
+  print_header "Syncing base deps with Python ${TARGET_PYTHON} (no GPU yet)"
+  UV_PYTHON="${TARGET_PYTHON}" uv sync || true
+
+  local tag
+  tag=$(detect_cuda_tag)
+  print_header "Installing CUDA PyTorch (${tag})"
+  UV_PYTHON="${TARGET_PYTHON}" uv pip install --reinstall --index-url "https://download.pytorch.org/whl/${tag}" torch torchvision torchaudio
 
   print_header "Installing Mamba/causal-conv1d with no-build-isolation"
   # Force reinstall to bypass build isolation and catch missing wheels
   UV_PYTHON="${TARGET_PYTHON}" uv pip install --no-build-isolation --upgrade \
     "mamba-ssm>=2.2.2,<3.0" "causal-conv1d>=1.4.0.post2" || true
+
+  if [[ "${OS_NAME}" == "Linux" ]]; then
+    print_header "Installing bitsandbytes (Linux only)"
+    UV_PYTHON="${TARGET_PYTHON}" uv pip install --upgrade bitsandbytes || true
+  fi
 
   if [[ "${INSTALL_FLASH}" == "1" && "${OS_NAME}" == "Linux" ]]; then
     print_header "Installing flash-attn (optional)"

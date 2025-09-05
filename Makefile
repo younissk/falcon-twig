@@ -1,6 +1,6 @@
 
 
-.PHONY: train dev test-env fix-env doctor doctor-fix
+.PHONY: train dev test-env fix-env doctor doctor-fix train311
 
 dev:
 	uv sync
@@ -33,3 +33,7 @@ doctor:
 # Attempt automated fix: set up Python 3.11 + install fastpath extras
 doctor-fix:
 	TARGET_PYTHON=3.11 INSTALL_FLASH=0 bash scripts/fastpath_doctor.sh fix
+
+# Train with Python 3.11 explicitly
+train311:
+	UV_PYTHON=3.11 uv run python -m src.train
