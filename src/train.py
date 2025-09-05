@@ -104,6 +104,13 @@ def main(config: Optional[str] = None) -> None:
     targets = cfg.targets or infer_lora_targets(model)  # type: ignore
     model = apply_lora(model, targets, r=cfg.lora_r,
                        alpha=cfg.lora_alpha, dropout=cfg.lora_dropout)  # type: ignore
+    # Sanity check: ensure we actually have trainable params (LoRA matched something)
+    try:
+        trainable_params = sum(int(p.numel()) for p in model.parameters() if getattr(p, "requires_grad", False))  # type: ignore
+        if trainable_params == 0:
+            raise RuntimeError("No trainable parameters found after applying LoRA. Adjust target modules or disable LoRA.")
+    except Exception:
+        pass
 
     # data
     train_ds, valid_ds = load_and_prepare(cfg, tokenizer)  # type: ignore

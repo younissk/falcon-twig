@@ -59,6 +59,19 @@ def load_model_standard(base_model: str, attn_implementation: str = "auto", enab
             device_map="auto",
             attn_implementation="sdpa",
         )  # type: ignore
+
+    # Recommended for training with gradient checkpointing
+    try:
+        model.config.use_cache = False  # type: ignore
+    except Exception:
+        pass
+
+    # Optional compile for forward pass
+    if enable_torch_compile:
+        try:
+            model = torch.compile(model, mode=torch_compile_mode, fullgraph=False)  # type: ignore
+        except Exception:
+            pass
     return model
 
 def load_model_4bit(base_model: str, attn_implementation: str = "auto", enable_torch_compile: bool = False, torch_compile_mode: str = "max-autotune") -> Any:
@@ -98,7 +111,23 @@ def load_model_4bit(base_model: str, attn_implementation: str = "auto", enable_t
                 device_map="auto",
                 attn_implementation="sdpa",
             )
+
+        # Prepare for QLoRA training
         model = prepare_model_for_kbit_training(model)  # type: ignore
+
+        # Disable KV cache during training (recommended)
+        try:
+            model.config.use_cache = False  # type: ignore
+        except Exception:
+            pass
+
+        # Optional compile for forward pass
+        if enable_torch_compile:
+            try:
+                model = torch.compile(model, mode=torch_compile_mode, fullgraph=False)  # type: ignore
+            except Exception:
+                pass
+
         print("Successfully loaded model in 4-bit mode")
         return model
         
@@ -109,14 +138,7 @@ def load_model_4bit(base_model: str, attn_implementation: str = "auto", enable_t
         print(f"Warning: 4-bit quantization failed ({str(e)}), falling back to standard loading")
         return load_model_standard(base_model, attn_implementation, enable_torch_compile, torch_compile_mode)
     
-    model.config.use_cache = False  # type: ignore
-    model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})  # type: ignore
-    # Optional compile for forward pass
-    if enable_torch_compile:
-        try:
-            model = torch.compile(model, mode=torch_compile_mode, fullgraph=False)  # type: ignore
-        except Exception:
-            pass
+    # Unreachable legacy path retained for clarity above
     return model  # type: ignore
 
 def infer_lora_targets(model: Any) -> List[str]:
@@ -135,17 +157,59 @@ def infer_lora_targets(model: Any) -> List[str]:
                 if c in lname: 
                     present.add(c)  # type: ignore
     if not present:
+        # Fallback: target common projection names across modern LMs
+        common = {"q_proj","k_proj","v_proj","o_proj","in_proj","out_proj","gate_proj","up_proj","down_proj","proj","dense","fc"}
         for name, module in model.named_modules():  # type: ignore
-            if isinstance(module, nn.Linear) and "transformer" in name.lower():  # type: ignore
-                present.add(name.split(".")[-1].lower())  # type: ignore
+            if isinstance(module, nn.Linear):  # type: ignore
+                last = name.split(".")[-1].lower()
+                if last in common or any(t in last for t in common):
+                    present.add(last)  # type: ignore
     return sorted(present)  # type: ignore
 
 def apply_lora(model: Any, targets: List[str], r: int = 16, alpha: int = 32, dropout: float = 0.05) -> Any:
+    # If provided targets won't match anything, fall back to inferred ones
+    def _likely_matches_any(mod: str, targets: List[str]) -> bool:
+        return any(t in mod for t in targets)
+
+    has_match = False
+    try:
+        for name, module in model.named_modules():  # type: ignore
+            if isinstance(module, nn.Linear):  # type: ignore
+                if _likely_matches_any(name.lower().split(".")[-1], [t.lower() for t in targets]):
+                    has_match = True
+                    break
+    except Exception:
+        pass
+
+    chosen_targets = targets[:]
+    if not has_match:
+        auto = infer_lora_targets(model)
+        if auto:
+            print(f"[LoRA] Provided targets {targets} did not match; using inferred targets: {auto}")
+            chosen_targets = auto
+        else:
+            # Last-resort: target all Linear layer names (deduped) except lm_head
+            names: List[str] = []
+            try:
+                for name, module in model.named_modules():  # type: ignore
+                    if isinstance(module, nn.Linear):  # type: ignore
+                        last = name.split(".")[-1]
+                        if last != "lm_head":
+                            names.append(last)
+            except Exception:
+                pass
+            dedup = sorted({n for n in names})
+            print(f"[LoRA] Falling back to broad Linear targets: {dedup}")
+            chosen_targets = dedup
+
     lcfg = LoraConfig(  # type: ignore
         r=r, lora_alpha=alpha, lora_dropout=dropout,
         bias="none", task_type="CAUSAL_LM",
-        target_modules=targets,
+        target_modules=chosen_targets,
     )
     model = get_peft_model(model, lcfg)  # type: ignore
-    model.print_trainable_parameters()  # type: ignore
+    try:
+        model.print_trainable_parameters()  # type: ignore
+    except Exception:
+        pass
     return model
