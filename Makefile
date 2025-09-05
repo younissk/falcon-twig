@@ -1,6 +1,6 @@
 
 
-.PHONY: train dev test-env fix-env doctor doctor-fix train311
+.PHONY: train dev test-env fix-env doctor doctor-fix train311 install-mamba
 
 dev:
 	uv sync
@@ -37,3 +37,11 @@ doctor-fix:
 # Train with Python 3.11 explicitly
 train311:
 	UV_PYTHON=3.11 uv run python -m src.train
+
+# Install Mamba SSM
+install-mamba:
+	pip install causal-conv1d>=1.4.0
+	pip install mamba-ssm
+	pip install mamba-ssm[dev]
+	uv pip install causal-conv1d>=1.4.0 
+	uv pip install mamba-ssm
