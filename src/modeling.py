@@ -31,22 +31,39 @@ def load_model_4bit(base_model: str, attn_implementation: str = "auto", enable_t
             bnb_4bit_compute_dtype=get_compute_dtype(),
         )
         _AutoCausalLM: Any = cast(Any, AutoModelForCausalLM)
-        model = _AutoCausalLM.from_pretrained(  # type: ignore
-            base_model,
-            quantization_config=bnb,  # type: ignore
-            device_map="auto",
-            attn_implementation=None if attn_implementation == "auto" else attn_implementation,
-        )  # type: ignore
+        resolved_attn = None if attn_implementation == "auto" else attn_implementation
+        try:
+            model = _AutoCausalLM.from_pretrained(  # type: ignore
+                base_model,
+                quantization_config=bnb,  # type: ignore
+                device_map="auto",
+                attn_implementation=resolved_attn,
+            )  # type: ignore
+        except Exception:
+            model = _AutoCausalLM.from_pretrained(  # type: ignore
+                base_model,
+                quantization_config=bnb,  # type: ignore
+                device_map="auto",
+                attn_implementation="sdpa",
+            )  # type: ignore
         model = prepare_model_for_kbit_training(model)  # type: ignore
     else:
         # Fallback for macOS ARM64 without bitsandbytes
         print("Warning: bitsandbytes not available, loading model without quantization")
         _AutoCausalLM2: Any = cast(Any, AutoModelForCausalLM)
-        model = _AutoCausalLM2.from_pretrained(  # type: ignore
-            base_model,
-            device_map="auto",
-            attn_implementation=None if attn_implementation == "auto" else attn_implementation,
-        )  # type: ignore
+        resolved_attn2 = None if attn_implementation == "auto" else attn_implementation
+        try:
+            model = _AutoCausalLM2.from_pretrained(  # type: ignore
+                base_model,
+                device_map="auto",
+                attn_implementation=resolved_attn2,
+            )  # type: ignore
+        except Exception:
+            model = _AutoCausalLM2.from_pretrained(  # type: ignore
+                base_model,
+                device_map="auto",
+                attn_implementation="sdpa",
+            )  # type: ignore
     
     model.config.use_cache = False  # type: ignore
     model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})  # type: ignore
