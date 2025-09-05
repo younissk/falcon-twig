@@ -181,23 +181,26 @@ fix() {
     warn "Non-Linux system detected (${OS_NAME}). CUDA fastpath requires Linux + NVIDIA GPU."
   fi
 
+  # Ensure all subsequent uv commands target the desired Python
+  export UV_PYTHON="${TARGET_PYTHON}"
+
   print_header "Ensuring Python ${TARGET_PYTHON} is available to uv"
-  UV_PYTHON="${TARGET_PYTHON}" uv python install "${TARGET_PYTHON}" || true
+  uv python install "${TARGET_PYTHON}" || true
 
   print_header "Creating/using project virtualenv with Python ${TARGET_PYTHON}"
-  UV_PYTHON="${TARGET_PYTHON}" uv venv || true
+  uv venv || true
 
   print_header "Ensuring build tooling (pip/setuptools/wheel/packaging)"
-  UV_PYTHON="${TARGET_PYTHON}" uv pip install --upgrade pip setuptools wheel packaging || true
+  uv pip install --upgrade pip setuptools wheel packaging || true
 
   local tag
   tag=$(detect_cuda_tag)
   print_header "Installing CUDA PyTorch (${tag})"
-  UV_PYTHON="${TARGET_PYTHON}" uv pip install --reinstall --index-url "https://download.pytorch.org/whl/${tag}" torch torchvision torchaudio
+  uv pip install --reinstall --index-url "https://download.pytorch.org/whl/${tag}" torch torchvision torchaudio
 
   print_header "Installing Mamba/causal-conv1d with no-build-isolation"
   # Force reinstall to bypass build isolation and catch missing wheels
-  UV_PYTHON="${TARGET_PYTHON}" uv pip install --no-build-isolation --upgrade \
+  uv pip install --no-build-isolation --upgrade \
     "mamba-ssm>=2.2.2,<3.0" "causal-conv1d>=1.4.0.post2" || true
 
   if [[ "${OS_NAME}" == "Linux" ]]; then
@@ -208,8 +211,8 @@ fix() {
   if [[ "${INSTALL_FLASH}" == "1" && "${OS_NAME}" == "Linux" ]]; then
     print_header "Installing flash-attn (optional)"
     # flash-attn often requires ninja present
-    UV_PYTHON="${TARGET_PYTHON}" uv pip install --upgrade ninja || true
-    UV_PYTHON="${TARGET_PYTHON}" uv pip install --no-build-isolation --upgrade \
+    uv pip install --upgrade ninja || true
+    uv pip install --no-build-isolation --upgrade \
       "flash-attn>=2.6.3" || true
   else
     warn "Skipping flash-attn install (set INSTALL_FLASH=1 and ensure Linux/CUDA)"
