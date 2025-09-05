@@ -101,7 +101,19 @@ def main(config: Optional[str] = None) -> None:
         label_batch[label_batch == PAD_ID] = -100  # type: ignore
         return {"input_ids": input_batch, "attention_mask": attention_mask, "labels": label_batch}
 
-    _optim = "paged_adamw_8bit" if torch.cuda.is_available() else "adamw_torch"  # type: ignore
+    def _bnb_available() -> bool:
+        try:
+            return True
+        except Exception:
+            return False
+
+    if torch.cuda.is_available() and _bnb_available():  # type: ignore
+        _optim = "paged_adamw_8bit"
+    elif torch.cuda.is_available():  # type: ignore
+        _optim = "adamw_torch_fused"
+    else:
+        _optim = "adamw_torch"
+
     args = TrainingArguments(
         output_dir=cfg.output_dir,
         per_device_train_batch_size=cfg.per_device_train_bs,
@@ -161,7 +173,6 @@ def main(config: Optional[str] = None) -> None:
         train_dataset=train_ds,
         eval_dataset=valid_ds,
         data_collator=collator,
-        tokenizer=None,  # avoid deprecation noise
         callbacks=[EarlyStoppingCallback(early_stopping_patience=cfg.early_stopping_patience), _ThroughputCallback(cfg.log_tokens_per_second)],
         difficulty_weights=cfg.difficulty_weights,
     )

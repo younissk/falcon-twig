@@ -48,14 +48,14 @@ def load_model_standard(base_model: str, attn_implementation: str = "auto", enab
     try:
         model = _AutoCausalLM.from_pretrained(  # type: ignore
             base_model,
-            torch_dtype=compute_dtype,
+            dtype=compute_dtype,
             device_map="auto",
             attn_implementation=resolved_attn,
         )  # type: ignore
     except Exception:
         model = _AutoCausalLM.from_pretrained(  # type: ignore
             base_model,
-            torch_dtype=compute_dtype,
+            dtype=compute_dtype,
             device_map="auto",
             attn_implementation="sdpa",
         )  # type: ignore
