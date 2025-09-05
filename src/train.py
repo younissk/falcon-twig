@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional, cast
 from transformers import TrainingArguments, EarlyStoppingCallback, Trainer, TrainerCallback  # type: ignore
 from torch.nn.utils.rnn import pad_sequence  # type: ignore
 from src.config import TrainingConfig
-from src.modeling import load_tokenizer, load_model_4bit, infer_lora_targets, apply_lora  # type: ignore
+from src.modeling import load_tokenizer, load_model_4bit, load_model_standard, infer_lora_targets, apply_lora  # type: ignore
 from src.data import load_and_prepare
 
 
@@ -61,12 +61,31 @@ def main(config: Optional[str] = None) -> None:
 
     # tokenizer / model
     tokenizer = load_tokenizer(cfg.base_model)  # type: ignore
-    model = load_model_4bit(
-        cfg.base_model,
-        attn_implementation=cfg.attn_implementation,
-        enable_torch_compile=cfg.enable_torch_compile,
-        torch_compile_mode=cfg.torch_compile_mode,
-    )  # type: ignore
+    use_4bit_env = os.getenv("USE_4BIT", "1").lower()
+    use_4bit = use_4bit_env not in ("0", "false", "no")
+    if use_4bit:
+        model = load_model_4bit(
+            cfg.base_model,
+            attn_implementation=cfg.attn_implementation,
+            enable_torch_compile=cfg.enable_torch_compile,
+            torch_compile_mode=cfg.torch_compile_mode,
+        )  # type: ignore
+    else:
+        model = load_model_standard(
+            cfg.base_model,
+            attn_implementation=cfg.attn_implementation,
+            enable_torch_compile=cfg.enable_torch_compile,
+            torch_compile_mode=cfg.torch_compile_mode,
+        )  # type: ignore
+
+    # quick env print for clarity
+    try:
+        import sys
+        print(f"Python: {sys.executable}")
+        print(f"Torch: {torch.__version__}, CUDA: {getattr(torch.version,'cuda',None)}, cuda.is_available: {torch.cuda.is_available()}")  # type: ignore
+        print(f"USE_4BIT: {use_4bit}")
+    except Exception:
+        pass
 
     # Warn if Mamba fast-path kernels are missing (Falcon H1 uses SSM blocks)
     def _mamba_fastpath_available() -> bool:
@@ -113,7 +132,7 @@ def main(config: Optional[str] = None) -> None:
         except Exception:
             return False
 
-    if torch.cuda.is_available() and _bnb_available():  # type: ignore
+    if torch.cuda.is_available() and _bnb_available() and use_4bit:  # type: ignore
         _optim = "paged_adamw_8bit"
     elif torch.cuda.is_available():  # type: ignore
         _optim = "adamw_torch_fused"
