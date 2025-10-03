@@ -11,3 +11,5 @@ make train
 ```
 
 Sadly it underperformed the normal instruct model even on tool calling, making it kinda useless.
+
+[Here the technical report](https://youniss.dev/pdfs/Falcon_Twig_Technical_Report.pdf)
