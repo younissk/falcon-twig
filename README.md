@@ -10,3 +10,4 @@ To train, simply run:
 make train
 ```
 
+Sadly it underperformed the normal instruct model even on tool calling, making it kinda useless.
